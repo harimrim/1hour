@@ -1,55 +1,55 @@
-import time
+from datetime import datetime
 
 from flask import Flask, render_template, jsonify, request
 from pymongo import MongoClient
-from datetime import datetime
-from time import strftime, localtime
 
 app = Flask(__name__)
 
 client = MongoClient("mongodb://localhost:27017/")
 db = client.dbStock
 
-# index 보여주기
+
 @app.route('/')
 def index():
     return render_template('index.html')
 
-# post 저장하기
+
 @app.route('/post', methods=['POST'])
 def save_post():
-    title_receive = request.form['title_give']
-    content_receive = request.form['content_give']
-
-    if title_receive == "" or content_receive == "":
-        return jsonify({'msg': '빈칸에 내용을 입력해주세요!'})
-
+    title = request.form.get('title')
+    content = request.form.get('content')
+    post_count = db.post.count()
+    if post_count == 0:
+        max_value = 1
     else:
-        doc = {
-            'title': title_receive,
-            'content': content_receive,
-            'reg_date': time.strftime('%Y-%M-%D-%H-%M-%S', time.localtime(time.time())),
-            'idx': db.timetest.count() + 1
-        }
+        max_value = db.post.find_one(sort=[("idx", -1)])['idx'] + 1
 
-        db.timetest.insert_one(doc)
-        return jsonify({'msg': '저장 완료!'})
+    post = {
+        'idx': max_value,
+        'title': title,
+        'content': content,
+        'reg_date': datetime.now(),
+        'view': 0
+    }
+    db.post.insert_one(post)
+    return {"result": "success"}
 
 
 @app.route('/post', methods=['GET'])
 def get_post():
-    logs = list(db.timetest.find({}, {'_id': False}))
-    return jsonify({'all_logs': logs})
+    posts = list(db.post.find({}, {'_id': False}).sort([("reg_date", -1)]))
+    for a in posts:
+        a['reg_date'] = a['reg_date'].strftime('%Y.%m.%d %H:%M:%S')
+
+    return jsonify({"posts": posts})
 
 
 @app.route('/post', methods=['DELETE'])
 def delete_post():
-    idx_receive = request.form['idx_give']  # idx 받아오기
-    print(idx_receive)
-    db.timetest.delete_one({'idx': idx_receive})  # 받아온 idx db 삭제하기
-    return jsonify({'msg': '삭제 완료'})  # 메세지 리턴해주기
-
+    idx = request.args.get('idx')
+    db.post.delete_one({'idx': int(idx)})
+    return {"result": "success"}
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=5000, debug="True")
