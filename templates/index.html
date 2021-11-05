@@ -1,5 +1,5 @@
 <!Doctype html>
-<html lang="ko">
+<html lang="ko" xmlns="http://www.w3.org/1999/html">
 
 <head>
     <!-- Required meta tags -->
@@ -39,7 +39,7 @@
         }
 
         .wrap {
-            width: 900px;
+            width: 1200px;
             margin: auto;
         }
 
@@ -54,6 +54,7 @@
     <script>
         let order = "asc";
         let perPage = "5";
+        let listType = "all";
 
         $(document).ready(function () {
             $("#cards-box").html("");
@@ -61,7 +62,25 @@
             $("#perPagingSelect").change(function () {
                 perPage = $(this).val();
                 showArticles(1)
-            })
+            });
+            $.ajaxSetup({
+                error: function (jqXHR, exception) {
+                    switch (jqXHR.status) {
+                        case 401:
+                            alert('인증 에러!!');
+                            break;
+                        case 423:
+                            alert('중복된 id!!');
+                            break;
+                    }
+                },
+                beforeSend: function (xhr) {
+                    if (localStorage.getItem('token') != null) {
+                        xhr.setRequestHeader('Authorization', localStorage.getItem('token'));
+                    }
+                }
+            });
+            loginCheck();
         });
 
         function openClose() {
@@ -111,12 +130,21 @@
                 })
             }
         }
+        function postingrep(){
+            let rep = $("#rep-text").val
+            $.ajax({
+                type: "POST",
+                url: "/rep",
+                data: {rep:rep}
+
+            })
+        }
 
         function showArticles(curPage) {
             let searchTitle = $("#searchTitle").val();
             $.ajax({
                 type: "GET",
-                url: `/articles?perPage=${perPage}&curPage=${curPage}&order=${order}&searchTitle=${searchTitle}`,
+                url: `/articles/${listType}?perPage=${perPage}&curPage=${curPage}&order=${order}&searchTitle=${searchTitle}`,
                 data: {},
                 success: function (response) {
                     $("#list-post").empty();
@@ -183,6 +211,7 @@
             let tempHtml = ` <tr>
                       <th scope="row">${index}</th>
                       <td><a href="#" onclick="readArticle(${post['idx']})">${post['title']}</td>
+                      <td>${post['writer'] ? post['writer'] : '비회원'}</td>
                       <td>${post['reg_date']}</td>
                       <td>${post['read_count']}</td>
                       <td><button type="button" class="btn btn-danger" onclick="deleteArticle(${post['idx']})">삭제</button></td>
@@ -222,222 +251,235 @@
             showArticles(1);
         }
 
-        function addFiles() {
-            $("#upload").append("<input type='file' name='file'>");
-        }
-
-        function saveFiles() {
-            var form_data = new FormData($('#upload')[0]);
-            $.ajax({
-                type: 'POST',
-                url: '/files',
-                data: form_data,
-                contentType: false,
-                cache: false,
-                processData: false,
-                success: function () {
-                    console.log('Success!');
-                },
-            });
+        function openCloseLogin() {
+            $('#login-id').val('');
+            $('#login-pwd').val('');
+            $('#loginModal').modal('show');
         }
 
         function login() {
-            let userid = $("#userId").val()
-            let password = $("#userPw").val()
-
             $.ajax({
                 type: "POST",
-                url: "login/sign_in",
-                data: {
-                    userid_give: userid,
-                    password_give: password
-                },
+                url: "/login",
+                data: {id: $("#login-id").val(), pwd: $("#login-pwd").val()},
                 success: function (response) {
-                    if (response['result'] == 'success') {
-                        $.cookie('mytoken', response['token'], {path: '/'});
-                    } else {
-                        alert(response['msg'])
-                    }
+                    localStorage.setItem('token', response['token']);
+                    alert("로그인 되었습니다!!");
+                    $('#loginModal').modal('hide');
+                    loginCheck();
                 }
             })
         }
 
-        function sign_up() {
-            let userid = $("#sign-up-id")
-            let password = $("#sign-up-password")
+        function openCloseJoin() {
+            $('#joinModal').modal('show');
+        }
 
+        function join() {
             $.ajax({
                 type: "POST",
-                url: "/login/sign_up",
-                data: {
-                    userid_give: userid,
-                    password_give: password
-                },
+                url: "/join",
+                data: {id: $("#join-id").val(), pwd: $("#join-pwd").val()},
                 success: function (response) {
-                    alert("회원가입을 축하드립니다!")
-                    window.location.replace("/")
+                    alert("로그인 해주세요!!");
+                    $('#joinModal').modal('hide');
+                }
+            })
+        }
+
+        function logout() {
+            localStorage.removeItem('token');
+            $('#btn-login').show();
+            $('#btn-logout').hide();
+            $('#btn-join').show();
+        }
+
+        function loginCheck() {
+            if (localStorage.getItem('token')) {
+                $('#btn-login').hide();
+                $('#btn-logout').show();
+                $('#btn-join').hide();
+            }
+        }
+
+        function setListType(type) {
+            if (type == 'my' && !localStorage.getItem('token')) {
+                alert("로그인 하세요!!");
+                return false;
+            }
+
+            if (listType == type) return false;
+            item = `#list-${type}`;
+            $(item).closest("ul").find("li").each(function (index) {
+                if ($(this).children("a").hasClass("active")) {
+                    $(this).children("a").removeClass("active");
+                    $(this).children("a").addClass("disabled");
+                } else {
+                    $(this).children("a").addClass("active");
+                    $(this).children("a").removeClass("disabled");
                 }
             });
+            listType = type;
+            showArticles(1);
         }
     </script>
 
 </head>
 
 <body>
-    <div class="wrap">
-        <div class="jumbotron">
-            <h1 class="display-4">질문합시다!!</h1>
-            <hr class="my-4">
-            <p class="lead">
-                <button onclick="openClose()" id="btn-post-box" type="button" class="btn btn-primary">포스팅 박스 열기
-                </button>
-                <button onclick="login()" id="btn-login-box" type="button" data-toggle="modal" data-target="#login">로그인
-                </button>
-                <button onclick="sign_up()" id="btn-sing-up-box" type="button" data-toggle="modal" data-taget="#sign-up">회원가입
-                </button>
-            </p>
-        </div>
-        <div id="post-box" class="form-post" style="display:none">
-            <div>
-                <div class="form-group">
-                    <label for="post-url">제목</label>
-                    <input id="post-url" class="form-control" placeholder="">
-                </div>
-                <div class="form-group">
-                    <label for="post-comment">간단한 내용</label>
-                    <textarea id="post-comment" class="form-control" rows="2"></textarea>
-                </div>
-                <input id="post-idx" class="form-control" placeholder="" hidden>
-                <button type="button" class="btn btn-primary" onclick="postingArticle()">기사저장</button>
+<div class="wrap">
+    <div class="jumbotron">
+        <h1 class="display-4">질문합시다!!</h1>
+        <hr class="my-4">
+        <p class="lead">
+            <button onclick="openClose()" id="btn-post-box" type="button" class="btn btn-primary">포스팅 박스 열기</button>
+            <button onclick="openCloseLogin()" id="btn-login" type="button" class="btn btn-secondary">로그인</button>
+            <button onclick="logout()" id="btn-logout" type="button" class="btn btn-danger" style="display:none">로그아웃
+            </button>
+            <button onclick="openCloseJoin()" id="btn-join" type="button" class="btn btn-success">회원가입</button>
+        </p>
+    </div>
+    <div id="post-box" class="form-post" style="display:none">
+        <div>
+            <div class="form-group">
+                <label for="post-url">제목</label>
+                <input id="post-url" class="form-control" placeholder="">
             </div>
+            <div class="form-group">
+                <label for="post-comment">간단한 내용</label>
+                <textarea id="post-comment" class="form-control" rows="2"></textarea>
+            </div>
+            <input id="post-idx" class="form-control" placeholder="" hidden>
+            <button type="button" class="btn btn-primary" onclick="postingArticle()">기사저장</button>
         </div>
-        <div class="input-group mb-3" style="width: 10%;margin: 0% 90%;">
-            <select class="custom-select" id="perPagingSelect">
-                <option value="5">5</option>
-                <option value="10">10</option>
-                <option value="15">15</option>
-            </select>
+    </div>
+    <ul class="nav nav-pills">
+        <li class="nav-item">
+            <a class="nav-link active" href="#" id="list-all" onclick="setListType('all')">전체글</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link disabled" href="#" id="list-my" onclick="setListType('my')">내글</a>
+        </li>
+    </ul>
+    <div class="input-group mb-3" style="width: 10%;margin: 0% 90%;">
+        <select class="custom-select" id="perPagingSelect">
+            <option value="5">5</option>
+            <option value="10">10</option>
+            <option value="15">15</option>
+        </select>
+    </div>
+    <table class="table">
+        <thead>
+        <tr>
+            <th scope="col">#</th>
+            <th scope="col">제목</th>
+            <th scope="col">글쓴이</th>
+            <th scope="col">날짜</th>
+            <th scope="col">조회<span onclick="setOrder()" id="viewOrder">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                           class="bi bi-arrow-down-square-fill" viewBox="0 0 16 16">
+  <path d="M2 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H2zm6.5 4.5v5.793l2.146-2.147a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 1 1 .708-.708L7.5 10.293V4.5a.5.5 0 0 1 1 0z"/>
+</svg>
+                  </span></th>
+            <th scope="col">삭제</th>
+            <th scope="col">수정</th>
+        </tr>
+        </thead>
+        <tbody id="list-post">
+        </tbody>
+    </table>
+    <nav aria-label="Page navigation example">
+        <ul class="pagination" style="justify-content: center; " id="pagination">
+        </ul>
+    </nav>
+    <div class="input-group mb-3" style="width: 40%;margin: 0% 30%;">
+        <input type="text" class="form-control" placeholder="제목" aria-label="제목"
+               aria-describedby="basic-addon2" id="searchTitle">
+        <div class="input-group-append">
+            <button class="btn btn-outline-secondary" type="button" onclick="searching()">검색</button>
         </div>
-        <table class="table">
-            <thead>
-            <tr>
-                <th scope="col">#</th>
-                <th scope="col">제목</th>
-                <th scope="col">날짜</th>
-                <th scope="col">조회<span onclick="setOrder()" id="viewOrder">
-                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
-                               class="bi bi-arrow-down-square-fill" viewBox="0 0 16 16">
-      <path d="M2 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H2zm6.5 4.5v5.793l2.146-2.147a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 1 1 .708-.708L7.5 10.293V4.5a.5.5 0 0 1 1 0z"/>
-    </svg>
-                      </span></th>
-                <th scope="col">삭제</th>
-                <th scope="col">수정</th>
-            </tr>
-            </thead>
-            <tbody id="list-post">
-            </tbody>
-        </table>
-        <nav aria-label="Page navigation example">
-            <ul class="pagination" style="justify-content: center; " id="pagination">
-            </ul>
-        </nav>
-        <div class="input-group mb-3" style="width: 40%;margin: 0% 30%;">
-            <input type="text" class="form-control" placeholder="제목" aria-label="제목"
-                   aria-describedby="basic-addon2" id="searchTitle">
-            <div class="input-group-append">
-                <button class="btn btn-outline-secondary" type="button" onclick="searching()">검색</button>
+    </div>
+</div>
+
+<!-- Modal -->
+<div class="modal fade" id="articleModal" tabindex="-1" role="dialog" aria-labelledby="articleModalLabel"
+     aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modal-title"></h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body" id="modal-content">
+            </div>
+            <div class="modal-footer">
+                <input type="text" id="rep-text"><button type="button" class="btn btn-secondary" data-dismiss="modal" id="rep">댓글달기</button></input>
             </div>
         </div>
     </div>
+</div>
 
-        <!-- Modal -->
-        <div class="modal fade" id="articleModal" tabindex="-1" role="dialog" aria-labelledby="articleModalLabel"
-             aria-hidden="true">
-            <div class="modal-dialog" role="document">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="modal-title"></h5>
-                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                            <span aria-hidden="true">&times;</span>
-                        </button>
+<!-- Login Modal -->
+<div class="modal fade" id="loginModal" tabindex="-1" role="dialog" aria-labelledby="myModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="exampleModalLabel">로그인</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form>
+                    <div class="form-group">
+                        <label for="login-id" class="col-form-label">아이디</label>
+                        <input type="text" class="form-control" id="login-id">
                     </div>
-                    <div class="modal-body" id="modal-content">
+                    <div class="form-group">
+                        <label for="login-pwd" class="col-form-label">패스워드</label>
+                        <input type="password" class="form-control" id="login-pwd">
                     </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
-                    </div>
-                </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" onclick="login()">로그인</button>
             </div>
         </div>
-        <!-- The Modal -->
-        <div class="modal" id="login">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <!-- Modal Header -->
-                    <div class="modal-header">
-                        <h4 class="modal-title">로그인</h4>
+    </div>
+</div>
+
+<!-- Join Modal -->
+<div class="modal fade" id="joinModal" tabindex="-1" role="dialog" aria-labelledby="myModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">회원가입</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form>
+                    <div class="form-group">
+                        <label for="join-id" class="col-form-label">아이디</label>
+                        <input type="text" class="form-control" id="join-id">
                     </div>
-
-                    <!-- Modal body -->
-                    <form action="" class="was-validated" method="post">
-                        <div class="form-group">
-                            <label for="userId">아이디 </label>
-                            <input type="text" class="form-control" id="userId" placeholder="Enter ID" name="userId" required>
-                            <div class="valid-feedback">Valid.</div>
-                            <div class="invalid-feedback">Please fill out this field.</div>
-                        </div>
-                        <div class="form-group">
-                            <label for="userPw">비밀번호 </label>
-                            <input type="password" class="form-control" id="userPw" placeholder="Enter Password" name="userPw"
-                                   required>
-                            <div class="valid-feedback">Valid.</div>
-                            <div class="invalid-feedback">Please fill out this field.</div>
-                        </div>
-                        <button type="submit" class="btn btn-primary" style="margin:auto">로그인</button>
-
-                        <!-- Modal footer -->
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-danger" data-dismiss="modal">취소</button>
-                        </div>
-                    </form>
-                </div>
+                    <div class="form-group">
+                        <label for="join-pwd" class="col-form-label">패스워드</label>
+                        <input type="password" class="form-control" id="join-pwd">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" onclick="join()">회원가입</button>
             </div>
         </div>
-        <div class="modal" id="sign-up">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <!-- Modal Header -->
-                    <div class="modal-header">
-                        <h4 class="modal-title">회원가입</h4>
-                    </div>
-
-                    <!-- Modal body -->
-                    <form action="" class="was-validated" method="post">
-                        <div class="form-group">
-                            <label for="userId">아이디 </label>
-                            <input type="text" class="form-control" id="sign-up-id" placeholder="Enter ID" name="userId"
-                                   required>
-                            <div class="valid-feedback">Valid.</div>
-                            <div class="invalid-feedback">Please fill out this field.</div>
-                        </div>
-                        <div class="form-group">
-                            <label for="userPw">비밀번호 </label>
-                            <input type="password" class="form-control" id="sign-up-password" placeholder="Enter Password"
-                                   name="userPw"
-                                   required>
-                            <div class="valid-feedback">Valid.</div>
-                            <div class="invalid-feedback">Please fill out this field.</div>
-                        </div>
-                        <button type="submit" class="btn btn-primary" style="margin:auto">회원가입</button>
-
-                        <!-- Modal footer -->
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-danger" data-dismiss="modal">취소</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        </div>
+    </div>
+</div>
 </body>
 
 </html>

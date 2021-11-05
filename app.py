@@ -1,18 +1,46 @@
 from datetime import datetime, timedelta
-import jwt
-import hashlib
-import os
-from flask import Flask, render_template, jsonify, request
-from pymongo import MongoClient
+from functools import wraps
 
+from flask import Flask, render_template, jsonify, request, Response, g
+from pymongo import MongoClient
+import jwt
+import bcrypt
 
 app = Flask(__name__)
 
 client = MongoClient("mongodb://localhost:27017/")
 db = client.dbStock
+secret = "secrete"
+algorithm = "HS256"
 
-SECRET_KEY = os.environ.get('SECRET_KEY')
+def login_check(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        access_token = request.headers.get("Authorization")
+        if access_token is not None:
+            try:
+                payload = jwt.decode(access_token, secret, "HS256")
+            except jwt.InvalidTokenError:
+                return Response(status=401)
 
+            if payload is None:
+                return Response(status=401)
+
+            user_id = payload["id"]
+            g.user_id = user_id
+            g.user = get_user_info(user_id)
+        else:
+            g.user_id = "비회원"
+            g.user = None
+            print("access_token is empty")
+
+        return f(*args, **kwargs)
+
+    return decorated_function
+
+
+def get_user_info(user_id):
+    return db.user.find_one({"id": user_id})
 
 @app.route('/')
 def index():
@@ -20,6 +48,7 @@ def index():
 
 
 @app.route('/article', methods=['POST'])
+@login_check
 def save_post():
     title = request.form.get('title')
     content = request.form.get('content')
@@ -34,14 +63,16 @@ def save_post():
         'title': title,
         'content': content,
         'read_count': 0,
+        'writer': (g.user_id if hasattr(g, 'user_id') else ''),
         'reg_date': datetime.now()
     }
     db.article.insert_one(post)
     return {"result": "success"}
 
 
-@app.route('/articles', methods=['GET'])
-def get_posts():
+@app.route('/articles/<type>', methods=['GET'])
+@login_check
+def get_posts(type):
     order = request.args.get('order')
     per_page = request.args.get('perPage')
     cur_page = request.args.get('curPage')
@@ -50,9 +81,12 @@ def get_posts():
     if search_title is not None:
         search_condition = {"title": {"$regex": search_title}}
 
+    if type == 'my':
+        search_condition['writer'] = g.user_id
+
     limit = int(per_page)
     skip = limit * (int(cur_page) - 1)
-    total_count = db.article.find(search_condition).count()
+    total_count = db.article.count_documents(search_condition)
     total_page = int(total_count / limit) + (1 if total_count % limit > 0 else 0)
 
     if order == "desc":
@@ -96,7 +130,7 @@ def update_post():
     title = request.form.get('title')
     content = request.form.get('content')
     db.article.update_one({'idx': int(idx)}, {'$set': {'title': title, 'content': content}})
-    return {"result": "success"}
+    return jsonify({"result": "success"})
 
 
 @app.route('/article/<idx>', methods=['PUT'])
@@ -105,38 +139,37 @@ def update_read_count(idx):
     article = db.article.find_one({'idx': int(idx)}, {'_id': False})
     return jsonify({"article": article})
 
-@app.route('/login/sign_in', methods=['POST'])
-def sign_in():
-    # 로그인
-    userid_receive = request.form['userid_give']
-    password_receive = request.form['password_give']
 
-    pw_hash = hashlib.sha256(password_receive.encode('utf-8')).hexdigest()
-    result = client.dbStock.find_one({'userid': userid_receive, 'password': pw_hash})
+@app.route('/join', methods=['POST'])
+def create_user():
+    id = request.form.get('id')
+    pwd = request.form.get('pwd')
+    if get_user_info(id) is not None:
+        return Response(status=423)
 
-    if result is not None:
+    db.user.insert_one({"id": id, "pwd": bcrypt.hashpw(pwd.encode('UTF-8'), bcrypt.gensalt())})
+    return jsonify({"result": "success"})
+
+
+@app.route('/login', methods=['POST'])
+def login_user():
+    id = request.form.get('id')
+    pwd = request.form.get('pwd')
+    user = db.user.find_one({"id": id})
+
+    if get_user_info(id) is None:
+        return Response(status=401)
+
+    if bcrypt.checkpw(pwd.encode('utf-8'), user['pwd']):
         payload = {
-            'id': userid_receive,
-            'exp': datetime.utcnow() + timedelta(seconds=60 * 60 * 24)  # 로그인 24시간 유지
+            "id": id,
+            "exp": datetime.utcnow() + timedelta(seconds=60 * 60 * 24)
         }
-        token = jwt.encode(payload, SECRET_KEY, algorithm='HS256')
-
-        return jsonify({'result': 'success', 'token': token})
-    # 찾지 못하면
+        token = jwt.encode(payload, secret, "HS256")
+        return jsonify({"result": "success", "token": token})
     else:
-        return jsonify({'result': 'fail', 'msg': '아이디/비밀번호가 일치하지 않습니다.'})
+        return Response(status=401)
 
-@app.route('/login/sign_up', methods=['POST'])
-def sign_up():
-    userid_receive = request.form['userid_give']
-    password_receive = request.form['password_give']
-    password_hash = hashlib.sha256(password_receive.encode('utf-8')).hexdigest()
-    doc = {
-        "userid": userid_receive,
-        "password": password_hash
-    }
-    client.dbStock.insert_one(doc)
-    return jsonify({'result': 'success'})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
